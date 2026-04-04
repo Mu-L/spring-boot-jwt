@@ -67,6 +67,7 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
   @Bean
   public PasswordEncoder passwordEncoder() {
+    // Strength 12 is a good default for most use cases (balance of security and performance)
     return new BCryptPasswordEncoder(12);
   }
 

@@ -9,8 +9,8 @@ import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletRequest;
 
+import lombok.RequiredArgsConstructor;
 import murraco.model.AppUserRole;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -24,8 +24,11 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import murraco.exception.CustomException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
+@RequiredArgsConstructor
 public class JwtTokenProvider {
 
   /**
@@ -38,8 +41,9 @@ public class JwtTokenProvider {
   @Value("${security.jwt.token.expire-length:3600000}")
   private long validityInMilliseconds = 3600000; // 1h
 
-  @Autowired
-  private MyUserDetails myUserDetails;
+  private final MyUserDetails myUserDetails;
+
+  private static final Logger log = LoggerFactory.getLogger(JwtTokenProvider.class);
 
   @PostConstruct
   protected void init() {
@@ -84,7 +88,8 @@ public class JwtTokenProvider {
       Jwts.parser().setSigningKey(secretKey).parseClaimsJws(token);
       return true;
     } catch (JwtException | IllegalArgumentException e) {
-      throw new CustomException("Expired or invalid JWT token", HttpStatus.INTERNAL_SERVER_ERROR);
+      log.debug("Invalid JWT token", e);
+      throw new CustomException("Expired or invalid JWT token", HttpStatus.UNAUTHORIZED);
     }
   }
 

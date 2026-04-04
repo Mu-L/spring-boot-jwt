@@ -1,33 +1,13 @@
 spring:
-  datasource:
-    url: jdbc:h2:mem:test_db;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    # url: jdbc:mysql://localhost:3306/user_db
-    username: root
-    password: root
-  tomcat:
-    max-wait: 20000
-    max-active: 50
-    max-idle: 20
-    min-idle: 15
-  jpa:
-    hibernate:
-      ddl-auto: create-drop
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
-        # dialect: org.hibernate.dialect.MySQL8Dialect
-        format_sql: true
-        id:
-          new_generator_mappings: false
-
-server:
-   port: 8080 # This is the default port anyway, but you can change it here
+  profiles:
+    active: dev
 
 security:
   jwt:
     token:
-      secret-key: secret-key
-      expire-length: 300000 # 5 minutes duration by default: 5 minutes * 60 seconds * 1000 miliseconds
+      # For production, set JWT_SECRET (and optionally JWT_EXPIRE_MS) via environment variables. Do not use the default in production.
+      secret-key: ${JWT_SECRET:secret-key}
+      expire-length: ${JWT_EXPIRE_MS:300000} # 5 minutes default; override with JWT_EXPIRE_MS (milliseconds)
       
 UserController:
   signin: Authenticates user and returns its JWT token.

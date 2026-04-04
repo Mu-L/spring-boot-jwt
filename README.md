@@ -39,7 +39,7 @@ spring-boot-jwt/
  │       │
  │       ├── exception
  │       │   ├── CustomException.java
- │       │   └── GlobalExceptionController.java
+ │       │   └── GlobalExceptionHandlerController.java
  │       │
  │       ├── model
  │       │   ├── AppUserRole.java
@@ -61,14 +61,54 @@ spring-boot-jwt/
  │       └── JwtAuthServiceApp.java
  │
  ├── src/main/resources/
- │   └── application.yml
+ │   ├── application.yml        # default profile (dev), JWT placeholders
+ │   └── application-dev.yml    # H2, JPA, server.port, H2 console (dev)
+ │
+ ├── src/test/java/murraco/controller/
+ │   └── UserControllerTest.java
  │
  ├── .gitignore
+ ├── Dockerfile
  ├── LICENSE
- ├── mvnw/mvnw.cmd
+ ├── mvnw, mvnw.cmd
  ├── README.md
  └── pom.xml
 ```
+
+# Architecture overview
+
+This is a REST API with **stateless JWT authentication**. The endpoints `/users/signin` and `/users/signup` are public; all other endpoints require a valid JWT in the `Authorization: Bearer <token>` header. Roles `ROLE_ADMIN` and `ROLE_CLIENT` are enforced via `@PreAuthorize` on controller methods.
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Filter as JwtTokenFilter
+  participant Provider as JwtTokenProvider
+  participant Controller
+  participant Service
+
+  Note over Client,Service: Signin (no token)
+  Client->>Controller: POST /users/signin
+  Controller->>Service: signin(username, password)
+  Service->>Client: JWT token
+
+  Note over Client,Service: Protected request
+  Client->>Filter: GET /users/me + Bearer JWT
+  Filter->>Provider: resolveToken, validateToken
+  Provider->>Provider: getAuthentication (load user)
+  Filter->>Controller: set SecurityContext, doFilter
+  Controller->>Service: whoami(req)
+  Service->>Client: UserResponseDTO
+```
+
+## JWT flow in this project
+
+1. **Obtain a token:** Send `POST /users/signin` with `username` and `password` (form or query params). The response is the JWT string.
+2. **Call protected APIs:** Send the token in the header: `Authorization: Bearer <token>`.
+3. **Filter chain:** `JwtTokenFilter` reads the header, validates the token via `JwtTokenProvider`, loads the user via `MyUserDetails`, and sets Spring’s `SecurityContext`.
+4. **Authorization:** Controllers use `@PreAuthorize("hasRole('ROLE_ADMIN')")` (or similar) so only users with the right role can access the endpoint.
+
+Core classes: `JwtTokenFilter`, `JwtTokenFilterConfigurer`, `JwtTokenProvider`, `MyUserDetails`, `WebSecurityConfig`.
 
 # Introduction (https://jwt.io)
 
@@ -215,7 +255,9 @@ Let's see how can we implement the JWT token based authentication using Java and
 
 ## H2 DB
 
-This demo is currently using an H2 database called **test_db** so you can run it quickly and out-of-the-box without much configuration. If you want to connect to a different database you have to specify the connection in the `application.yml` file inside the resource directory. Note that `hibernate.hbm2ddl.auto=create-drop` will drop and create a clean database each time we deploy (you may want to change it if you are using this in a real project). Here's the example from the project, see how easily you can swap comments on the `url` and `dialect` properties to use your own MySQL database:
+This demo uses an H2 in-memory database **test_db** when the **`dev`** profile is active (see `application-dev.yml`, merged with `application.yml`). The dev profile enables the H2 web console (`spring.h2.console.enabled: true`). Open **`http://localhost:8080/h2-console`** (JDBC URL `jdbc:h2:mem:test_db`, user `root`, password `root` as in the YAML). Spring Security permits `/h2-console/**` for local testing only—do not expose that in production.
+
+If you want a different database, change the datasource in `application-dev.yml` (or a `prod` profile) instead of only `application.yml`. Note that `ddl-auto: create-drop` rebuilds the schema on each restart (change it for real deployments). Example settings (also reflected in `application-dev.yml`):
 
 ```yml
 spring:
@@ -251,7 +293,7 @@ spring:
 
 **JwtTokenFilter**
 
-The `JwtTokenFilter` filter is applied to each API (`/**`) with exception of the signin token endpoint (`/users/signin`) and singup endpoint (`/users/signup`).
+The `JwtTokenFilter` filter is applied to each API (`/**`) with exception of the signin token endpoint (`/users/signin`) and signup endpoint (`/users/signup`).
 
 This filter has the following responsibilities:
 
@@ -299,7 +341,7 @@ The `WebSecurityConfig` class extends `WebSecurityConfigurerAdapter` to provide 
 Following beans are configured and instantiated in this class:
 
 1. `JwtTokenFilter`
-3. `PasswordEncoder`
+2. `PasswordEncoder`
 
 Also, inside `WebSecurityConfig#configure(HttpSecurity http)` method we'll configure patterns to define protected/unprotected API endpoints. Please note that we have disabled CSRF protection because we are not using Cookies.
 
@@ -329,6 +371,27 @@ http.apply(new JwtTokenFilterConfigurer(jwtTokenProvider));
 
 # How to use this code?
 
+## Configuration
+
+For **production**, set the JWT secret via environment variables. The default `secret-key` in `application.yml` is for local development only and must not be used in production.
+
+| Variable | Description | Default |
+|----------|--------------|---------|
+| `JWT_SECRET` | Secret key used to sign JWT tokens. Use a long, random value (e.g. 256+ bits). | `secret-key` (dev only) |
+| `JWT_EXPIRE_MS` | Token validity in milliseconds. | `300000` (5 minutes) |
+
+Example: `export JWT_SECRET=your-secure-random-secret` before running the application.
+
+**Production:** Disable or protect the H2 console and use a real database (e.g. MySQL). The in-memory H2 and open `/h2-console/**` are for development only.
+
+**Profiles:** The default profile is `dev` (see `application-dev.yml` for H2 and server settings). For production, set `spring.profiles.active=prod` and configure `JWT_SECRET`, database URL, and disable H2 console as needed.
+
+**Quick start:** After running the app, two users exist: `admin` / `admin` and `client` / `client`. With profile **`dev`**, the app uses in-memory H2 (see `application-dev.yml`); the schema is recreated on each restart. For MySQL, switch the datasource in `application-dev.yml` (or your prod profile). The H2 console is enabled only in that dev configuration.
+
+**Docker:** Build and run with `docker build -t spring-boot-jwt .` then `docker run -p 8080:8080 spring-boot-jwt`. For production, pass `-e JWT_SECRET=your-secret`.
+
+## Setup
+
 1. Make sure you have [Java 8](https://www.java.com/download/) and [Maven](https://maven.apache.org) installed
 
 2. Fork this repository and clone it
@@ -355,7 +418,7 @@ $ mvn install
 $ mvn spring-boot:run
 ```
 
-6. Navigate to `http://localhost:8080/swagger-ui.html` in your browser to check everything is working correctly. You can change the default port in the `application.yml` file
+6. Open Swagger UI for this stack (**Springfox 2.x**): **`http://localhost:8080/swagger-ui.html`**. (OpenAPI JSON is at `http://localhost:8080/v2/api-docs`.) Click **Authorize**, choose the **`Authorization`** API key, and enter `Bearer <your_jwt>` so protected endpoints receive the `Authorization` header. The default port is **8080** (`server.port` in `application-dev.yml`).
 
 ```yml
 server:
@@ -368,10 +431,16 @@ server:
 $ curl -X GET http://localhost:8080/users/me
 ```
 
-8. Make a POST request to `/users/signin` with the default admin user we programatically created to get a valid JWT token
+8. Make a POST request to `/users/signin` with the default admin user we programmatically created to get a valid JWT token
 
 ```
 $ curl -X POST 'http://localhost:8080/users/signin?username=admin&password=admin'
+```
+
+To **sign up** a new user (returns a JWT):
+
+```
+$ curl -X POST http://localhost:8080/users/signup -H "Content-Type: application/json" -d '{"username":"newuser","email":"new@example.com","password":"password8","appUserRoles":["ROLE_CLIENT"]}'
 ```
 
 9. Add the JWT token as a Header parameter and make the initial GET request to `/users/me` again
@@ -382,16 +451,20 @@ $ curl -X GET http://localhost:8080/users/me -H 'Authorization: Bearer <JWT_TOKE
 
 10. And that's it, congrats! You should get a similar response to this one, meaning that you're now authenticated
 
-```javascript
+```json
 {
   "id": 1,
   "username": "admin",
   "email": "admin@email.com",
-  "roles": [
+  "appUserRoles": [
     "ROLE_ADMIN"
   ]
 }
 ```
+
+# Version notes
+
+This project uses **Spring Boot 2.5** and **Java 8**. If you upgrade to Spring Boot 3.x, you will need to: migrate from `WebSecurityConfigurerAdapter` to a `SecurityFilterChain` bean, switch from `javax.*` to `jakarta.*`, and consider replacing Springfox with [SpringDoc OpenAPI](https://springdoc.org/) for API documentation.
 
 # Contribution
 

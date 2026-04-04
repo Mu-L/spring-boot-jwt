@@ -14,10 +14,14 @@ import murraco.exception.CustomException;
 import murraco.model.AppUser;
 import murraco.repository.UserRepository;
 import murraco.security.JwtTokenProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
+
+  private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
   private final UserRepository userRepository;
   private final PasswordEncoder passwordEncoder;
@@ -27,7 +31,9 @@ public class UserService {
   public String signin(String username, String password) {
     try {
       authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(username, password));
-      return jwtTokenProvider.createToken(username, userRepository.findByUsername(username).getAppUserRoles());
+      String token = jwtTokenProvider.createToken(username, userRepository.findByUsername(username).getAppUserRoles());
+      log.info("User signed in: {}", username);
+      return token;
     } catch (AuthenticationException e) {
       throw new CustomException("Invalid username/password supplied", HttpStatus.UNPROCESSABLE_ENTITY);
     }
@@ -37,6 +43,7 @@ public class UserService {
     if (!userRepository.existsByUsername(appUser.getUsername())) {
       appUser.setPassword(passwordEncoder.encode(appUser.getPassword()));
       userRepository.save(appUser);
+      log.info("User signed up: {}", appUser.getUsername());
       return jwtTokenProvider.createToken(appUser.getUsername(), appUser.getAppUserRoles());
     } else {
       throw new CustomException("Username is already in use", HttpStatus.UNPROCESSABLE_ENTITY);
@@ -48,6 +55,7 @@ public class UserService {
   }
 
   public AppUser search(String username) {
+    // findByUsername may return null if user does not exist
     AppUser appUser = userRepository.findByUsername(username);
     if (appUser == null) {
       throw new CustomException("The user doesn't exist", HttpStatus.NOT_FOUND);
