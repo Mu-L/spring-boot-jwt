@@ -1,6 +1,6 @@
 package murraco.service;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -55,7 +55,6 @@ public class UserService {
   }
 
   public AppUser search(String username) {
-    // findByUsername may return null if user does not exist
     AppUser appUser = userRepository.findByUsername(username);
     if (appUser == null) {
       throw new CustomException("The user doesn't exist", HttpStatus.NOT_FOUND);
