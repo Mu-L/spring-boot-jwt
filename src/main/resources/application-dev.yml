@@ -18,8 +18,8 @@ spring:
       ddl-auto: create-drop
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
-        # dialect: org.hibernate.dialect.MySQL8Dialect
+        # dialect auto-detected for H2; for MySQL uncomment:
+        # dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
         id:
           new_generator_mappings: false

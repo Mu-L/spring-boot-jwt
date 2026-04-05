@@ -63,11 +63,23 @@ public class UserService {
   }
 
   public AppUser whoami(HttpServletRequest req) {
-    return userRepository.findByUsername(jwtTokenProvider.getUsername(jwtTokenProvider.resolveToken(req)));
+    String token = jwtTokenProvider.resolveToken(req);
+    if (token == null) {
+      throw new CustomException("Missing or invalid Authorization header", HttpStatus.UNAUTHORIZED);
+    }
+    AppUser appUser = userRepository.findByUsername(jwtTokenProvider.getUsername(token));
+    if (appUser == null) {
+      throw new CustomException("The user doesn't exist", HttpStatus.NOT_FOUND);
+    }
+    return appUser;
   }
 
   public String refresh(String username) {
-    return jwtTokenProvider.createToken(username, userRepository.findByUsername(username).getAppUserRoles());
+    AppUser appUser = userRepository.findByUsername(username);
+    if (appUser == null) {
+      throw new CustomException("The user doesn't exist", HttpStatus.NOT_FOUND);
+    }
+    return jwtTokenProvider.createToken(username, appUser.getAppUserRoles());
   }
 
 }

@@ -4,11 +4,11 @@
 
 # Stack
 
-![](https://img.shields.io/badge/java_8-✓-blue.svg)
-![](https://img.shields.io/badge/spring_boot-✓-blue.svg)
+![](https://img.shields.io/badge/java_17-✓-blue.svg)
+![](https://img.shields.io/badge/spring_boot_3.5-✓-blue.svg)
 ![](https://img.shields.io/badge/mysql-✓-blue.svg)
 ![](https://img.shields.io/badge/jwt-✓-blue.svg)
-![](https://img.shields.io/badge/swagger_2-✓-blue.svg)
+![](https://img.shields.io/badge/springdoc_openapi-✓-blue.svg)
 
 <!-- ***
 
@@ -28,7 +28,7 @@ spring-boot-jwt/
  ├── src/main/java/
  │   └── murraco
  │       ├── configuration
- │       │   └── SwaggerConfig.java
+ │       │   └── OpenApiConfig.java
  │       │
  │       ├── controller
  │       │   └── UserController.java
@@ -50,7 +50,6 @@ spring-boot-jwt/
  │       │
  │       ├── security
  │       │   ├── JwtTokenFilter.java
- │       │   ├── JwtTokenFilterConfigurer.java
  │       │   ├── JwtTokenProvider.java
  │       │   ├── MyUserDetails.java
  │       │   └── WebSecurityConfig.java
@@ -108,7 +107,7 @@ sequenceDiagram
 3. **Filter chain:** `JwtTokenFilter` reads the header, validates the token via `JwtTokenProvider`, loads the user via `MyUserDetails`, and sets Spring’s `SecurityContext`.
 4. **Authorization:** Controllers use `@PreAuthorize("hasRole('ROLE_ADMIN')")` (or similar) so only users with the right role can access the endpoint.
 
-Core classes: `JwtTokenFilter`, `JwtTokenFilterConfigurer`, `JwtTokenProvider`, `MyUserDetails`, `WebSecurityConfig`.
+Core classes: `JwtTokenFilter`, `JwtTokenProvider`, `MyUserDetails`, `WebSecurityConfig` (`SecurityFilterChain`), and `OpenApiConfig` (SpringDoc).
 
 # Introduction (https://jwt.io)
 
@@ -261,23 +260,19 @@ If you want a different database, change the datasource in `application-dev.yml`
 
 ```yml
 spring:
+  h2:
+    console:
+      enabled: true
   datasource:
     url: jdbc:h2:mem:test_db;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     # url: jdbc:mysql://localhost:3306/user_db
     username: root
     password: root
-  tomcat:
-    max-wait: 20000
-    max-active: 50
-    max-idle: 20
-    min-idle: 15
   jpa:
     hibernate:
       ddl-auto: create-drop
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
-        # dialect: org.hibernate.dialect.MySQL8Dialect
         format_sql: true
         id:
           new_generator_mappings: false
@@ -286,10 +281,10 @@ spring:
 ## Core Code
 
 1. `JwtTokenFilter`
-2. `JwtTokenFilterConfigurer`
-3. `JwtTokenProvider`
-4. `MyUserDetails`
-5. `WebSecurityConfig`
+2. `JwtTokenProvider` (JJWT 0.12.x, HMAC-SHA256)
+3. `MyUserDetails`
+4. `WebSecurityConfig` (`SecurityFilterChain`, method security)
+5. `OpenApiConfig` (SpringDoc OpenAPI 3)
 
 **JwtTokenFilter**
 
@@ -311,15 +306,6 @@ if (token != null && jwtTokenProvider.validateToken(token)) {
 filterChain.doFilter(req, res);
 ```
 
-**JwtTokenFilterConfigurer**
-
-Adds the `JwtTokenFilter` to the `DefaultSecurityFilterChain` of spring boot security.
-
-```java
-JwtTokenFilter customFilter = new JwtTokenFilter(jwtTokenProvider);
-http.addFilterBefore(customFilter, UsernamePasswordAuthenticationFilter.class);
-```
-
 **JwtTokenProvider**
 
 The `JwtTokenProvider` has the following responsibilities:
@@ -336,37 +322,24 @@ It is used by the `DaoAuthenticationProvider` to load details about the user dur
 
 **WebSecurityConfig**
 
-The `WebSecurityConfig` class extends `WebSecurityConfigurerAdapter` to provide custom security configuration.
-
-Following beans are configured and instantiated in this class:
-
-1. `JwtTokenFilter`
-2. `PasswordEncoder`
-
-Also, inside `WebSecurityConfig#configure(HttpSecurity http)` method we'll configure patterns to define protected/unprotected API endpoints. Please note that we have disabled CSRF protection because we are not using Cookies.
+Defines a `SecurityFilterChain` bean (Spring Security 6): stateless sessions, CSRF disabled for the JWT API, `authorizeHttpRequests` with `requestMatchers`, JWT filter registered with `addFilterBefore`, and an `AccessDeniedHandler` for JSON-style 403 responses. `AuthenticationManager` is exposed as a bean for `UserService#signin`.
 
 ```java
-// Disable CSRF (cross site request forgery)
-http.csrf().disable();
-
-// No session will be created or used by spring security
-http.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS);
-
-// Entry points
-http.authorizeRequests()//
-  .antMatchers("/users/signin").permitAll()//
-  .antMatchers("/users/signup").permitAll()//
-  // Disallow everything else..
-  .anyRequest().authenticated();
-
-// If a user try to access a resource without having enough permissions
-http.exceptionHandling().accessDeniedPage("/login");
-
-// Apply JWT
-http.apply(new JwtTokenFilterConfigurer(jwtTokenProvider));
-
-// Optional, if you want to test the API from a browser
-// http.httpBasic();
+@Bean
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+  http.csrf(csrf -> csrf.disable());
+  http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+  http.authorizeHttpRequests(auth -> auth
+      .requestMatchers("/users/signin", "/users/signup").permitAll()
+      .requestMatchers("/h2-console/**").permitAll()
+      .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+      .anyRequest().authenticated());
+  http.exceptionHandling(ex -> ex.accessDeniedHandler((request, response, exn) ->
+      response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access denied")));
+  http.addFilterBefore(new JwtTokenFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class);
+  http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
+  return http.build();
+}
 ```
 
 # How to use this code?
@@ -386,13 +359,13 @@ Example: `export JWT_SECRET=your-secure-random-secret` before running the applic
 
 **Profiles:** The default profile is `dev` (see `application-dev.yml` for H2 and server settings). For production, set `spring.profiles.active=prod` and configure `JWT_SECRET`, database URL, and disable H2 console as needed.
 
-**Quick start:** After running the app, two users exist: `admin` / `admin` and `client` / `client`. With profile **`dev`**, the app uses in-memory H2 (see `application-dev.yml`); the schema is recreated on each restart. For MySQL, switch the datasource in `application-dev.yml` (or your prod profile). The H2 console is enabled only in that dev configuration.
+**Quick start:** After running the app, two demo users exist (created idempotently on startup if missing): `admin` / `admin123456` and `client` / `client123456` (passwords meet validation `@Size(min = 8)`). With profile **`dev`**, the app uses in-memory H2 (see `application-dev.yml`); the schema is recreated on each restart. For MySQL, switch the datasource in `application-dev.yml` (or your prod profile). The H2 console is enabled only in that dev configuration.
 
 **Docker:** Build and run with `docker build -t spring-boot-jwt .` then `docker run -p 8080:8080 spring-boot-jwt`. For production, pass `-e JWT_SECRET=your-secret`.
 
 ## Setup
 
-1. Make sure you have [Java 8](https://www.java.com/download/) and [Maven](https://maven.apache.org) installed
+1. Install **JDK 17 or newer** (LTS recommended, e.g. Temurin 17 or 21) and [Maven](https://maven.apache.org) 3.6.3+, or use the included **`./mvnw`** wrapper
 
 2. Fork this repository and clone it
   
@@ -418,7 +391,7 @@ $ mvn install
 $ mvn spring-boot:run
 ```
 
-6. Open Swagger UI for this stack (**Springfox 2.x**): **`http://localhost:8080/swagger-ui.html`**. (OpenAPI JSON is at `http://localhost:8080/v2/api-docs`.) Click **Authorize**, choose the **`Authorization`** API key, and enter `Bearer <your_jwt>` so protected endpoints receive the `Authorization` header. The default port is **8080** (`server.port` in `application-dev.yml`).
+6. Open **Swagger UI** (SpringDoc): **`http://localhost:8080/swagger-ui.html`** (redirects to `/swagger-ui/index.html`). OpenAPI JSON: **`http://localhost:8080/v3/api-docs`**. Click **Authorize**, select scheme **`bearerAuth`**, and enter `Bearer <your_jwt>`. Default port is **8080** (`application-dev.yml`).
 
 ```yml
 server:
@@ -434,7 +407,7 @@ $ curl -X GET http://localhost:8080/users/me
 8. Make a POST request to `/users/signin` with the default admin user we programmatically created to get a valid JWT token
 
 ```
-$ curl -X POST 'http://localhost:8080/users/signin?username=admin&password=admin'
+$ curl -X POST 'http://localhost:8080/users/signin?username=admin&password=admin123456'
 ```
 
 To **sign up** a new user (returns a JWT):
@@ -462,9 +435,23 @@ $ curl -X GET http://localhost:8080/users/me -H 'Authorization: Bearer <JWT_TOKE
 }
 ```
 
+# Testing
+
+Run the suite with:
+
+```bash
+./mvnw test
+```
+
+Integration-style tests use `@SpringBootTest` + `MockMvc`. For environments where the Mockito inline mock maker cannot attach to the JVM, the project uses the **subclass** mock maker via `src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker`.
+
 # Version notes
 
-This project uses **Spring Boot 2.5** and **Java 8**. If you upgrade to Spring Boot 3.x, you will need to: migrate from `WebSecurityConfigurerAdapter` to a `SecurityFilterChain` bean, switch from `javax.*` to `jakarta.*`, and consider replacing Springfox with [SpringDoc OpenAPI](https://springdoc.org/) for API documentation.
+This project targets **Spring Boot 3.5.x** (LTS line; see `spring-boot-starter-parent` version in `pom.xml`), **Java 17+**, **Spring Security 6** (`SecurityFilterChain`, `authorizeHttpRequests`), **Jakarta EE** namespaces (`jakarta.*`), **JJWT 0.12.x**, and **SpringDoc OpenAPI** (replacing Springfox).
+
+# Migration from Spring Boot 2.x
+
+If you are upgrading an older fork: replace `javax.*` with `jakarta.*`, migrate security configuration to `SecurityFilterChain`, swap Springfox for SpringDoc, upgrade JWT libraries to JJWT 0.12+, and run on **JDK 17+**. See the [Spring Boot 3.0 migration guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide) and [Spring Security 6.0 migration](https://docs.spring.io/spring-security/reference/migration/index.html).
 
 # Contribution
 

@@ -37,7 +37,7 @@ public class UserController {
   private final ModelMapper modelMapper;
 
   @PostMapping("/signin")
-  @Operation(summary = "${UserController.signin}")
+  @Operation(summary = "Authenticates user and returns a JWT token")
   @ApiResponses(value = {
       @ApiResponse(responseCode = "400", description = "Something went wrong"),
       @ApiResponse(responseCode = "422", description = "Invalid username/password supplied")})
@@ -48,7 +48,7 @@ public class UserController {
   }
 
   @PostMapping("/signup")
-  @Operation(summary = "${UserController.signup}")
+  @Operation(summary = "Creates user and returns a JWT token")
   @ApiResponses(value = {
       @ApiResponse(responseCode = "400", description = "Something went wrong"),
       @ApiResponse(responseCode = "403", description = "Access denied"),
@@ -59,7 +59,7 @@ public class UserController {
 
   @DeleteMapping(value = "/{username}")
   @PreAuthorize("hasRole('ROLE_ADMIN')")
-  @Operation(summary = "${UserController.delete}")
+  @Operation(summary = "Deletes user by username")
   @SecurityRequirement(name = "bearerAuth")
   @ApiResponses(value = {
       @ApiResponse(responseCode = "400", description = "Something went wrong"),
@@ -73,7 +73,7 @@ public class UserController {
 
   @GetMapping(value = "/{username}")
   @PreAuthorize("hasRole('ROLE_ADMIN')")
-  @Operation(summary = "${UserController.search}")
+  @Operation(summary = "Returns user by username")
   @SecurityRequirement(name = "bearerAuth")
   @ApiResponses(value = {
       @ApiResponse(responseCode = "400", description = "Something went wrong"),
@@ -86,7 +86,7 @@ public class UserController {
 
   @GetMapping(value = "/me")
   @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_CLIENT')")
-  @Operation(summary = "${UserController.me}")
+  @Operation(summary = "Returns the authenticated user's data")
   @SecurityRequirement(name = "bearerAuth")
   @ApiResponses(value = {
       @ApiResponse(responseCode = "400", description = "Something went wrong"),
@@ -98,7 +98,13 @@ public class UserController {
 
   @GetMapping("/refresh")
   @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_CLIENT')")
+  @Operation(summary = "Issues a new JWT for the authenticated user")
   @SecurityRequirement(name = "bearerAuth")
+  @ApiResponses(value = {
+      @ApiResponse(responseCode = "200", description = "New JWT issued"),
+      @ApiResponse(responseCode = "401", description = "Expired or invalid JWT token"),
+      @ApiResponse(responseCode = "403", description = "Access denied"),
+      @ApiResponse(responseCode = "404", description = "User no longer exists")})
   public String refresh(Authentication authentication) {
     return userService.refresh(authentication.getName());
   }
